@@ -1,177 +1,226 @@
-📌 What is Authentication?
+🚀 Redis Database – Complete Notes (JWT Token Blacklist)
+📌 Redis kya hai?
 
-Authentication verifies who the user is.
+Redis (Remote Dictionary Server) ek
+👉 in-memory key–value database hai
+👉 bahut fast, lightweight aur scalable
 
-Example:
+Redis mainly use hota hai:
 
-Login with email & password
+⚡ Caching
 
-Server confirms identity
+🔐 Session management
 
-Server issues a token
+🚫 JWT token blacklist (Logout feature)
 
-Client uses token for future requests
+📊 Rate limiting
 
-🪪 JWT (JSON Web Token)
-🔹 What is JWT?
+🔁 Pub/Sub system
 
-JWT is a self-contained token used to securely transmit user information between client and server.
+🧠 Redis vs Normal Database (MongoDB)
+Feature	Redis	MongoDB
+Storage	RAM (In-Memory)	Disk
+Speed	⚡ Very Fast	Medium
+Data Type	Key–Value	Document
+Use Case	Cache, Token, Session	Permanent Data
+JWT Logout	✅ Best	❌ Not recommended
+❓ JWT Logout Problem (Why Redis Needed?)
+❌ JWT ka issue
 
-📦 It contains:
+JWT stateless hota hai
+👉 Server token store nahi karta
+👉 Logout ke baad bhi token valid rehta hai jab tak expire na ho
 
-User identity
+Logout → Cookie delete
+BUT
+Token still valid if copied manually ❌
 
-Token expiry
+✅ Redis Solution: Token Blacklisting
+🧩 Concept
 
-Signature (for security)
+Logout ke time:
 
-🧱 JWT Structure
+JWT token ko Redis me store kar do
 
-JWT has 3 parts, separated by dots (.):
+Token ke expire time tak Redis me rakho
 
-HEADER.PAYLOAD.SIGNATURE
+Har protected API me check karo:
 
-1️⃣ Header
-{
-  "alg": "HS256",
-  "typ": "JWT"
-}
+agar token Redis me hai → ❌ BLOCK
 
-2️⃣ Payload
-{
-  "id": "userId123",
-  "email": "user@gmail.com",
-  "iat": 1700000000,
-  "exp": 1700003600
-}
+🔄 JWT + Redis Logout Flow (High Level)
+Login
+  ↓
+JWT token generate
+  ↓
+Client (cookie/header)
+  ↓
+Protected API request
+  ↓
+Redis check → JWT verify
+  ↓
+Response
 
-3️⃣ Signature
-HMACSHA256(
-  base64UrlEncode(header) + "." +
-  base64UrlEncode(payload),
-  SECRET_KEY
-)
+Logout Flow
+Logout
+  ↓
+Token Redis me store (blacklist)
+  ↓
+Cookie clear
+  ↓
+Same token future me BLOCK
 
+🧱 Redis Setup (Node.js)
+📦 Install Redis Package
+npm install redis
 
-🔐 Secret key ensures token integrity.
+🔌 Redis Connection (redis.js)
+const { createClient } = require("redis");
 
-✅ Why JWT?
+const client = createClient({
+  username: "default",
+  password: "YOUR_REDIS_PASSWORD",
+  socket: {
+    host: "YOUR_REDIS_HOST",
+    port: YOUR_REDIS_PORT,
+  },
+});
 
-✔ Stateless (no session storage)
-✔ Fast & scalable
-✔ Secure (signed)
-✔ Perfect for REST APIs
+client.on("connect", () => {
+  console.log("Redis connected");
+});
 
-⚠️ JWT is NOT encryption
+client.on("error", (err) => {
+  console.log("Redis error", err);
+});
 
-❌ Anyone can decode JWT
-✔ But cannot modify without secret key
+module.exports = client;
 
-🔑 Access Token
-🔹 What is Access Token?
-
-An Access Token is a short-lived JWT used to access protected APIs.
-
-📌 Sent with every request:
-
-Authorization: Bearer <access_token>
-
-⏱ Access Token Lifetime
-
-⏳ Short expiry (5–15 minutes)
-
-⛔ Expires quickly for security
-
-🧠 Use Case
-Login → Access Token issued
-API Request → Token verified
-Valid → Access granted
-Expired → 401 Unauthorized
-
-🟢 Example (Node.js)
-const accessToken = jwt.sign(
-  { userId: user._id },
+🔐 JWT Login (Token Create)
+const token = jwt.sign(
+  { _id: user._id, email: user.email },
   process.env.PASS_KEY,
-  { expiresIn: "15m" }
+  { expiresIn: "1h" }
 );
 
-🔁 Refresh Token
-🔹 What is Refresh Token?
+res.cookie("token", token, {
+  httpOnly: true,
+  sameSite: "lax",
+});
 
-A Refresh Token is used to generate a new Access Token without re-login.
+🚪 Logout Feature (Token Blacklist)
+router.post("/logout", async (req, res) => {
+  try {
+    const token = req.cookies.token;
 
-🧠 Think of it as:
+    if (!token) {
+      return res.send("Already logged out");
+    }
 
-“Token to refresh your token”
+    const payload = jwt.verify(token, process.env.PASS_KEY);
 
-⏱ Refresh Token Lifetime
+    // 🔥 Blacklist token in Redis
+    await client.set(token, "logout");
+    await client.expireAt(token, payload.exp);
 
-⏳ Long-lived (7 days / 30 days)
+    // Clear cookie
+    res.clearCookie("token", {
+      httpOnly: true,
+      sameSite: "lax",
+    });
 
-🔐 Stored securely (HTTP-only cookie / DB)
+    res.send("Logout SUCCESS!");
+  } catch (err) {
+    res.status(401).send("Invalid token");
+  }
+});
 
-🟢 Flow Example
-Access Token expired ❌
-↓
-Client sends Refresh Token
-↓
-Server verifies Refresh Token
-↓
-New Access Token issued ✅
+🧠 Important
 
-🟢 Example
-const refreshToken = jwt.sign(
-  { userId: user._id },
-  process.env.REFRESH_SECRET,
-  { expiresIn: "7d" }
-);
+token → key
 
-🔄 Access vs Refresh Token (Comparison)
-Feature	Access Token	Refresh Token
-Lifetime	Short (minutes)	Long (days)
-Used for	API access	Getting new access token
-Sent with request	Yes	No
-Storage	Memory / Cookie	HTTP-only Cookie / DB
-Risk if stolen	Low	High
-🔐 Security Best Practices
+"logout" → value
 
-✅ Use short expiry for access tokens
-✅ Store refresh tokens in HTTP-only cookies
-✅ Rotate refresh tokens
-✅ Use different secrets for access & refresh
-❌ Never store tokens in plain localStorage (production)
+expireAt() → JWT ke expire time ke saath Redis expire
 
-🧩 Complete Authentication Flow (Real World)
-1️⃣ User logs in
-2️⃣ Server verifies credentials
-3️⃣ Access Token + Refresh Token generated
-4️⃣ Access Token → client (API requests)
-5️⃣ Refresh Token → secure storage
-6️⃣ Access Token expires
-7️⃣ Refresh Token used
-8️⃣ New Access Token issued
+🔐 Protected Routes (Token Block Check)
+🔥 Auth Middleware (MOST IMPORTANT)
+const jwt = require("jsonwebtoken");
+const client = require("../redis");
 
-🚀 When to Use What?
+const auth = async (req, res, next) => {
+  try {
+    const token =
+      req.cookies.token || req.headers.authorization;
 
-✔ Small apps → JWT only
-✔ Large apps → Access + Refresh Token
-✔ Banking / secure apps → Refresh token rotation + blacklist
+    if (!token) {
+      return res.status(401).send("Token missing");
+    }
 
-📌 Conclusion
+    // 🚫 Redis blacklist check
+    const isBlacklisted = await client.get(token);
+    if (isBlacklisted) {
+      return res.status(401).send("Token expired (logged out)");
+    }
 
-JWT is the token format
+    // ✅ JWT verify
+    const payload = jwt.verify(token, process.env.PASS_KEY);
+    req.user = payload;
 
-Access Token is for API authorization
+    next();
+  } catch {
+    res.status(401).send("Unauthorized");
+  }
+};
 
-Refresh Token maintains long sessions securely
+module.exports = auth;
 
-💡 Correct token strategy = Secure & scalable backend
+👤 /userinfo Example
+router.get("/userinfo", auth, async (req, res) => {
+  const user = await User.findById(req.user._id);
+  res.send(user);
+});
 
-⭐ Tip for GitHub README
+🧪 Testing (Postman)
+✅ Correct Behavior
 
-Add architecture diagram later
+Login
 
-Add Postman screenshots
+Copy token
 
-Add .env.example
+Logout
 
+Paste token manually in header
+
+Authorization: <token>
+
+
+👉 Response:
+
+Token expired (logged out)
+
+
+✔ System secure hai
+
+🎯 Advantages of Redis Token Blacklist
+
+✅ Secure logout
+
+✅ Instant token block
+
+✅ No DB load
+
+✅ Scalable (millions of users)
+
+✅ Industry standard
+
+❌ Without Redis (Problem)
+Action	Result
+Logout	Cookie clear only
+Token reuse	❌ Allowed
+Security	❌ Weak
+🧠 Interview Ready Lines
+
+JWT stateless hota hai isliye logout ke liye Redis token blacklist ka use kiya jata hai.
+
+Redis fast in-memory store hai jo JWT logout aur session management ke liye best hai.
