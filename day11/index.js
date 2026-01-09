@@ -106,7 +106,7 @@ app.use("/",router);
 const initilize=async()=>{
 try {
   await Promise.all([main(),client.connect()])
-  console.log("db is connected");
+  console.log("Redis db is connected");
 
   app.listen(port,(req,res)=>{
 console.log(`listen port : ${port}`);
